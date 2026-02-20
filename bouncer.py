@@ -126,6 +126,44 @@ def evaluate_article(title: str, description: str, content: str):
         print(f"  [大模型研判出错]: {str(e)}")
         return None
 
+import re
+
+# --- 抛出端 (Delivery) ---
+
+def export_to_inbox(title: str, url: str, score: float, reason: str, axiom: str):
+    """将挖掘到的高密度金矿写入 Obsidian 00_Inbox 待审查"""
+    safe_title = re.sub(r'[\\/*?:"<>|]', "", title)[:60].strip()
+    filename = f"Bouncer - {safe_title}.md"
+    inbox_dir = "/Users/hugh/Documents/Obsidian/AINotes/00_Inbox"
+    
+    os.makedirs(inbox_dir, exist_ok=True)
+    filepath = os.path.join(inbox_dir, filename)
+    
+    content = f"""---
+tags:
+  - BouncerDump
+score: {score}
+---
+
+# {title}
+
+**来源链接**: [{url}]({url})
+**认知得分**: {score}
+
+> [!abstract] 核心公理 (Axiom)
+> {axiom}
+
+> [!info] 守门员判决理由 (Reason)
+> {reason}
+"""
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        print(f"  📥 [成功投递 Inbox]: {filename}")
+    except Exception as e:
+        print(f"  ❌ [写入 Inbox 失败]: {str(e)}")
+
+
 # --- 主流水线 ---
 
 def main():
@@ -166,6 +204,7 @@ def main():
                 # 达到阈值，判定为金子
                 if evaluation.score >= MIN_SCORE_THRESHOLD:
                     print(f"  🏆 [金子出现!] 提炼公理: {evaluation.axiom_extracted}")
+                    export_to_inbox(title, url, evaluation.score, evaluation.reason, evaluation.axiom_extracted)
                     golden_articles.append({
                         "title": title,
                         "url": url,
