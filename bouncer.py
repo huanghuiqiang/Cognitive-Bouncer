@@ -64,14 +64,7 @@ def evaluate_article(title: str, description: str, content: str):
     """核心研判：基于 Antigravity 公理"""
     load_dotenv()
     
-    # 强制清理环境变量干扰，完全由代码接管
-    if "HTTP_PROXY" in os.environ: del os.environ["HTTP_PROXY"]
-    if "HTTPS_PROXY" in os.environ: del os.environ["HTTPS_PROXY"]
-    if "http_proxy" in os.environ: del os.environ["http_proxy"]
-    if "https_proxy" in os.environ: del os.environ["https_proxy"]
-
-    proxy_url = "http://127.0.0.1:7897"
-    api_key = os.getenv("GEMINI_API_KEY") 
+    api_key = os.getenv("GEMINI_API_KEY")
     
     # 组合待评测文本
     eval_text = f"Title: {title}\nSummary: {description}\nBody Snippet: {content[:1000]}"
@@ -116,7 +109,6 @@ def evaluate_article(title: str, description: str, content: str):
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=payload,
-            proxies={"http": proxy_url, "https": proxy_url},
             timeout=30.0
         )
         
