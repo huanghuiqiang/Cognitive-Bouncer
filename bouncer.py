@@ -118,10 +118,12 @@ def evaluate_article(title: str, description: str, content: str):
             return None
             
         resp_json = resp.json()
+        usage = resp_json.get("usage", {})
         message_content = resp_json["choices"][0]["message"]["content"]
             
         json_str = message_content.strip().strip("```json").strip("```")
-        return ArticleEvaluation.model_validate_json(json_str)
+        evaluation = ArticleEvaluation.model_validate_json(json_str)
+        return evaluation, usage
         
     except Exception as e:
         print(f"  [大模型研判出错]: {str(e)}")
@@ -179,6 +181,7 @@ def main():
     
     new_processed_this_run = 0
     golden_articles = []
+    total_tokens = 0
     
     for feed_url in rss_urls:
         print(f"\n📡 正在接入数据源: {feed_url}")
@@ -195,17 +198,24 @@ def main():
             print(f"\n[检测到新文章]: {title}")
             description = entry.get('description', '')
             
-            # 浅层预估（L1 过滤：如果明显水文可直接在此加关键字排除）
+            # L1 本地过滤：基于关键词（省 Token）
+            blacklist = ["newsletter", "sponsored", "discount", "deal", "announcing", "hiring", "job", "offer"]
+            if any(word in title.lower() for word in blacklist):
+                print(f"  🗑️ [本地拦截] 匹配黑名单关键词")
+                processed_urls.add(url)
+                continue
             
             # 获取部分正文供模型判断（L2 过滤准备）
             content_snippet = fetch_content(url)
             
             # L2 调用大模型研判
             print(f"  🧠 提交给 Gemini 2.0 Flash 面试...")
-            evaluation = evaluate_article(title, description, content_snippet)
+            res = evaluate_article(title, description, content_snippet)
             
-            if evaluation:
-                print(f"  📊 判决得分: {evaluation.score} -> 理由: {evaluation.reason}")
+            if res:
+                evaluation, usage = res
+                total_tokens += usage.get("total_tokens", 0)
+                print(f"  📊 判决得分: {evaluation.score} (Usage: {usage.get('total_tokens')}t)")
                 
                 # 达到阈值，判定为金子
                 if evaluation.score >= MIN_SCORE_THRESHOLD:
@@ -225,14 +235,14 @@ def main():
             new_processed_this_run += 1
             
             # API 限流保护
-            time.sleep(1.5) 
+            time.sleep(1.0) 
             
     # 持久化记忆
     save_processed(processed_urls)
     
-    # 构建最终输出（Phase 3 分送的基础）
+    # 构建最终输出
     print("\n" + "="*50)
-    print(f"✅ 巡逻完成。本次共审查 {new_processed_this_run} 篇新文章。")
+    print(f"✅ 巡逻完成。共审查 {new_processed_this_run} 篇，消耗 {total_tokens} tokens。")
     print(f"👑 挖掘出的高认知密度文章: {len(golden_articles)} 篇。")
     print("="*50)
     
