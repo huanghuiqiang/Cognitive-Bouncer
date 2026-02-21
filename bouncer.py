@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, Field
+from telegram_notify import send_bouncer_report
 
 # --- 配置与缓存 ---
 DB_FILE = "processed_urls.json"
@@ -134,7 +135,8 @@ def export_to_inbox(title: str, url: str, score: float, reason: str, axiom: str)
     """将挖掘到的高密度金矿写入 Obsidian 00_Inbox 待审查"""
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)[:60].strip()
     filename = f"Bouncer - {safe_title}.md"
-    inbox_dir = "/Users/hugh/Documents/Obsidian/AINotes/00_Inbox"
+    # 优先从环境变量读取数据总线路径
+    inbox_dir = os.getenv("ANTIGRAVITY_INBOX", "/Users/hugh/Documents/Obsidian/AINotes/00_Inbox")
     
     os.makedirs(inbox_dir, exist_ok=True)
     filepath = os.path.join(inbox_dir, filename)
@@ -143,6 +145,10 @@ def export_to_inbox(title: str, url: str, score: float, reason: str, axiom: str)
 tags:
   - BouncerDump
 score: {score}
+status: pending
+source: "{url}"
+title: "{title.replace('"', "'")}"
+created: "{__import__('datetime').datetime.now().strftime('%Y-%m-%d')}"
 ---
 
 # {title}
@@ -234,6 +240,14 @@ def main():
         print(f"\n💎 Top {idx}: 【{art['score']}分】 {art['title']}")
         print(f"🔗 链接: {art['url']}")
         print(f"🧠 核心公理: {art['axiom']}")
+
+    # ── Telegram 推送 ─────────────────────────────────────
+    print("\n📨 正在推送报告到 Telegram...")
+    ok = send_bouncer_report(golden_articles, new_processed_this_run)
+    if ok:
+        print("✅ Telegram 推送成功")
+    else:
+        print("⚠️  Telegram 推送失败（请检查 .env 中的 TELEGRAM_CHAT_ID）")
 
 if __name__ == "__main__":
     main()
