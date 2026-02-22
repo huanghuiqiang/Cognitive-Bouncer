@@ -1,19 +1,25 @@
-import os
 import json
 import time
 import httpx
 import feedparser
-from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
-from openai import OpenAI
+from pathlib import Path
+from datetime import datetime
 from pydantic import BaseModel, Field
-from telegram_notify import send_bouncer_report
+from agos.config import (
+    bouncer_state_file,
+    bouncer_feed_config_file,
+    inbox_path,
+    min_score_threshold,
+    model_bouncer,
+    openrouter_api_key,
+)
+from agos.notify import send_bouncer_report
 
 # --- 配置与缓存 ---
-DB_FILE = "processed_urls.json"
-CONFIG_FILE = "config.json"
-MIN_SCORE_THRESHOLD = 8.0
+DB_FILE = bouncer_state_file()
+CONFIG_FILE = bouncer_feed_config_file()
+MIN_SCORE_THRESHOLD = min_score_threshold()
 
 # 引入 Pydantic 约束 LLM 输出格式（避免 JSON 解析错误）
 class ArticleEvaluation(BaseModel):
@@ -22,18 +28,19 @@ class ArticleEvaluation(BaseModel):
     axiom_extracted: str = Field(..., description="提取的核心公理(Axiom)：一句话总结其底层的规律或摩擦点。低分则填空字串。")
 
 def load_processed():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, 'r') as f:
+    if DB_FILE.exists():
+        with DB_FILE.open("r", encoding="utf-8") as f:
             return set(json.load(f))
     return set()
 
 def save_processed(processed_set):
-    with open(DB_FILE, 'w') as f:
-        json.dump(list(processed_set), f)
+    DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DB_FILE.open("w", encoding="utf-8") as f:
+        json.dump(sorted(processed_set), f, ensure_ascii=False, indent=2)
 
 def get_rss_urls():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
+    if CONFIG_FILE.exists():
+        with CONFIG_FILE.open("r", encoding="utf-8") as f:
             data = json.load(f)
             return data.get("urls", [])
     return ["https://news.ycombinator.com/rss"]
@@ -63,9 +70,10 @@ import requests
 
 def evaluate_article(title: str, description: str, content: str):
     """核心研判：基于 Antigravity 公理"""
-    load_dotenv()
-    
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = openrouter_api_key()
+    if not api_key:
+        print("  [配置缺失]: OPENROUTER_API_KEY / GEMINI_API_KEY 未设置")
+        return None
     
     # 组合待评测文本
     eval_text = f"Title: {title}\nSummary: {description}\nBody Snippet: {content[:1000]}"
@@ -98,7 +106,7 @@ def evaluate_article(title: str, description: str, content: str):
         }
         
         payload = {
-            "model": "google/gemini-2.0-flash-001",
+            "model": model_bouncer(),
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": eval_text}
@@ -137,11 +145,9 @@ def export_to_inbox(title: str, url: str, score: float, reason: str, axiom: str)
     """将挖掘到的高密度金矿写入 Obsidian 00_Inbox 待审查"""
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)[:60].strip()
     filename = f"Bouncer - {safe_title}.md"
-    # 优先从环境变量读取数据总线路径
-    inbox_dir = os.getenv("ANTIGRAVITY_INBOX", "/Users/hugh/Documents/Obsidian/AINotes/00_Inbox")
-    
-    os.makedirs(inbox_dir, exist_ok=True)
-    filepath = os.path.join(inbox_dir, filename)
+    inbox_dir = inbox_path()
+    inbox_dir.mkdir(parents=True, exist_ok=True)
+    filepath = inbox_dir / filename
     
     content = f"""---
 tags:
@@ -150,7 +156,7 @@ score: {score}
 status: pending
 source: "{url}"
 title: "{title.replace('"', "'")}"
-created: "{__import__('datetime').datetime.now().strftime('%Y-%m-%d')}"
+created: "{datetime.now().strftime('%Y-%m-%d')}"
 ---
 
 # {title}
@@ -165,7 +171,7 @@ created: "{__import__('datetime').datetime.now().strftime('%Y-%m-%d')}"
 > {reason}
 """
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
+        with filepath.open("w", encoding="utf-8") as f:
             f.write(content)
         print(f"  📥 [成功投递 Inbox]: {filename}")
     except Exception as e:

@@ -1,2 +1,4 @@
 .env
 config.json
+processed_urls.json
+__pycache__/
