@@ -25,7 +25,7 @@ MIN_SCORE_THRESHOLD = min_score_threshold()
 class ArticleEvaluation(BaseModel):
     score: float = Field(..., description="这篇内容的认知密度与价值得分 (0.0 - 10.0)")
     reason: str = Field(..., description="极简的一句话解释为什么给这个分数：是否有反共识或极高的技术价值")
-    axiom_extracted: str = Field(..., description="提取的核心公理(Axiom)：一句话总结其底层的规律或摩擦点。低分则填空字串。")
+    axiom_extracted: str = Field("", description="提取的核心公理(Axiom)：一句话总结其底层的规律或摩擦点。低分则填空字串。")
 
 def load_processed():
     if DB_FILE.exists():
@@ -142,10 +142,13 @@ import re
 # --- 抛出端 (Delivery) ---
 
 def export_to_inbox(title: str, url: str, score: float, reason: str, axiom: str):
-    """将挖掘到的高密度金矿写入 Obsidian 00_Inbox 待审查"""
+    """将挖掘到的高密度金矿写入 Obsidian 00_Inbox 待审查，按日期分类"""
     safe_title = re.sub(r'[\\/*?:"<>|]', "", title)[:60].strip()
     filename = f"Bouncer - {safe_title}.md"
-    inbox_dir = inbox_path()
+    
+    # 建立日期文件夹：00_Inbox/2026-02-23/
+    date_str = datetime.now().strftime('%Y-%m-%d')
+    inbox_dir = inbox_path() / date_str
     inbox_dir.mkdir(parents=True, exist_ok=True)
     filepath = inbox_dir / filename
     
@@ -156,7 +159,7 @@ score: {score}
 status: pending
 source: "{url}"
 title: "{title.replace('"', "'")}"
-created: "{datetime.now().strftime('%Y-%m-%d')}"
+created: "{date_str}"
 ---
 
 # {title}
@@ -195,10 +198,10 @@ def main():
         
         # 只取前 5 篇进行演示，避免一次性消耗过大
         for entry in feed.entries[:5]: 
-            url = entry.link
+            url = entry.get('link')
             title = entry.get('title', 'Unknown Title')
             
-            if url in processed_urls:
+            if not url or url in processed_urls:
                 continue
                 
             print(f"\n[检测到新文章]: {title}")
